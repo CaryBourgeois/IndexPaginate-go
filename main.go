@@ -22,16 +22,16 @@ import (
 )
 
 type User struct {
-	id int `fauna:"id"`
+	ID int `fauna:"id"`
 }
 
 type Group struct {
-	id int `fauna:"id"`
+	ID int `fauna:"id"`
 }
 
 type Edge struct {
-	user_id int `fauna:"user_id"`
-	group_id int `fauna:"group_id"`
+	User_ID int `fauna:"user_id"`
+	Group_ID int `fauna:"group_id"`
 }
 
 func main() {
@@ -45,12 +45,7 @@ func main() {
 	dbName := "UserGroupEdge"
 	client := createDB(adminClient, dbName)
 
-	//var classes []string
-	classes := make([]string, 3)
-	classes[0] = "users"
-	classes[1] = "groups"
-	classes[2] = "edges"
-
+	classes := []string{"users", "groups", "edges"}
 	createClasses(&client, classes)
 
 	createIndexes(&client)
@@ -68,8 +63,7 @@ func main() {
 
 func getUserGroups(client *f.FaunaClient, targetUser int) {
 	var cursorPos f.Value
-	var data f.ArrayV
-	//var edges []Edge
+	var edges []Edge
 
 	for {
 		res, err := client.Query(
@@ -81,11 +75,11 @@ func getUserGroups(client *f.FaunaClient, targetUser int) {
 			panic(err)
 		}
 
-		if err := res.At(f.ObjKey("data")).Get(&data); err != nil {
+		if err := res.At(f.ObjKey("data")).Get(&edges); err != nil {
 			panic(err)
 		}
-		for _, d := range data {
-			log.Println(d)
+		for _, edge := range edges {
+			log.Println(edge)
 		}
 
 		if cursorPos, err = res.At(f.ObjKey("after")).GetValue(); err != nil {
@@ -117,33 +111,32 @@ func createEdges(client *f.FaunaClient, numEdges int, numUsers int, numGroups in
 	 */
 	edges := make([]Edge, numEdges)
 	for i, edge := range edges {
-		edge.user_id = rand.Intn(numUsers) + 1
-		edge.group_id = rand.Intn(numGroups) + 1
+		edge.User_ID = rand.Intn(numUsers) + 1
+		edge.Group_ID = rand.Intn(numGroups) + 1
 
 		client.Query(
-			f.Create(f.Class("edges"), f.Obj{"data": f.Obj{"user_id": edge.user_id, "group_id": edge.group_id}}))
+			f.Create(f.Class("edges"), f.Obj{"data": edge}))
 
 		if ((i + 1) % 10) == 0 {
-			log.Printf("%d -> %d", edge.user_id, edge.group_id)
+			log.Printf("%d -> %d", edge.User_ID, edge.Group_ID)
 		}
 	}
-
 }
 
 func createGroups(client *f.FaunaClient, numGroups int) {
 	/*
 	 * Create the groups
 	 */
-	ids := make([]int, numGroups)
-	for i := 0; i < numGroups; i++ {
-		ids[i] = i + 1
+	groups := make([]Group, numGroups)
+	for i, group := range groups {
+		 group.ID = i + 1
 	}
 
 	res, err := client.Query(
 		f.Map(
-			f.Arr{ids},
-			f.Lambda("id",
-				f.Create(f.Class("groups"),  f.Obj{"data": f.Obj{"id": f.Var("id")}}))))
+			groups,
+			f.Lambda("group",
+				f.Create(f.Class("groups"),  f.Obj{"data": f.Var("group")}))))
 
 	if err != nil {
 		panic(err)
@@ -154,18 +147,18 @@ func createGroups(client *f.FaunaClient, numGroups int) {
 
 func createUsers(client *f.FaunaClient, numUsers int) {
 	/*
-	 * Create the groups
+	 * Create the users
 	 */
-	ids := make([]int, numUsers)
-	for i := 0; i < numUsers; i++ {
-		ids[i] = i + 1
+	users := make([]User, numUsers)
+	for i, user := range users {
+		user.ID = i + 1
 	}
 
 	res, err := client.Query(
 		f.Map(
-			f.Arr{ids},
-			f.Lambda("id",
-				f.Create(f.Class("users"),  f.Obj{"data": f.Obj{"id": f.Var("id")}}))))
+			users,
+			f.Lambda("user",
+				f.Create(f.Class("users"),  f.Obj{"data": f.Var("user")}))))
 
 	if err != nil {
 		panic(err)
@@ -174,31 +167,10 @@ func createUsers(client *f.FaunaClient, numUsers int) {
 
 }
 
-//func createUsers(client *f.FaunaClient, numUsers int) {
-//	/*
-//	 * Create the users
-//	 */
-//	users := make([]User, numUsers)
-//	for i := 0; i < numUsers; i++ {
-//		users[i].id = i + 1
-//	}
-//
-//	res, err := client.Query(
-//		f.Map(
-//			users,
-//			f.Lambda("user",
-//				f.Create(f.Class("users"),  f.Obj{"data": f.Var("user")}))))
-//
-//	if err != nil {
-//		panic(err)
-//	}
-//	log.Printf("Created %d 'users' \n%s", numUsers, res)
-//
-//}
-
 func createIndexes(client *f.FaunaClient) {
 	/*
-	 * Create an index to access customer records by id
+	 * Create an indexes to access edges by
+	 * user, group or both
 	 */
 	res, err := client.Query(
 		f.Do(
@@ -215,7 +187,12 @@ func createIndexes(client *f.FaunaClient) {
 			f.CreateIndex(f.Obj{
 				"name": "edges_group_users",
 				"source": f.Class("edges"),
-				"terms": f.Arr{f.Obj{"field": f.Arr{"data", "group_id"}}}})))
+				"terms": f.Arr{f.Obj{"field": f.Arr{"data", "group_id"}}}}),
+			f.CreateIndex(f.Obj{
+				"name": "edge_user_group",
+				"source": f.Class("edges"),
+				"unique": true,
+				"terms": f.Arr{f.Obj{"field": f.Arr{"data", "user_id", "group_id"}}}})))
 
 	if err != nil {
 		panic(err)
